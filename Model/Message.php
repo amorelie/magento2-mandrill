@@ -134,7 +134,7 @@ class Message extends \Magento\Framework\Mail\Message implements \Magento\Framew
     public function setFrom($fromAddress, $name = null)
     {
         if ($this->mandrillHelper->isMandrillEnabled()) {
-            $this->mandrillFrom      = $fromAddress;
+            $this->mandrillFrom = $fromAddress;
             $this->_fromName = $name;
         } else {
             parent::setFrom($fromAddress, $name);
@@ -146,6 +146,18 @@ class Message extends \Magento\Framework\Mail\Message implements \Magento\Framew
     public function getFromName()
     {
         return $this->_fromName;
+    }
+
+    public function setFromAddress($fromAddress, $fromName = null)
+    {
+        if ($this->mandrillHelper->isMandrillEnabled()) {
+            $this->mandrillFrom = $fromAddress;
+            $this->_fromName = $fromName;
+        } else {
+            parent::setFromAddress($fromAddress, $fromName);
+        }
+
+        return $this;
     }
 
     public function getFrom()
