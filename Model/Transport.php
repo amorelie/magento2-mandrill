@@ -4,6 +4,7 @@
  *
  * @category    Ebizmarts
  * @package     Ebizmarts_Mandrill
+ *
  * @author      Ebizmarts Team <info@ebizmarts.com>
  * @copyright   Ebizmarts (http://ebizmarts.com)
  * @license     http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
@@ -11,88 +12,144 @@
 
 namespace Ebizmarts\Mandrill\Model;
 
-class Transport implements \Magento\Framework\Mail\TransportInterface
+use Ebizmarts\Mandrill\Helper\Data;
+use Ebizmarts\Mandrill\Model\Api\Mandrill;
+use Magento\Framework\Mail\EmailMessageInterface;
+use Magento\Framework\Mail\MimeMessageInterface;
+use Magento\Framework\Mail\TransportInterface;
+use Zend\Mime\Mime;
+
+class Transport implements TransportInterface
 {
     /**
-     * @var \Ebizmarts\Mandrill\Model\Message
+     * @var EmailMessageInterface
      */
     private $message;
 
     /**
-     * @var Api\Mandrill
+     * @var Mandrill
      */
     private $api;
+
+    /**
+     * @var Data
+     */
     private $helper;
 
     /**
-     * @param \Magento\Framework\Mail\MessageInterface $message
-     * @param \Psr\Log\LoggerInterface $logger
-     * @param \Ebizmarts\Mandrill\Helper\Data $helper
+     * @param EmailMessageInterface $message
+     * @param Mandrill $api
+     * @param Data $helper
      */
     public function __construct(
-        \Ebizmarts\Mandrill\Model\Message $message,
-        \Ebizmarts\Mandrill\Model\Api\Mandrill $api,
-        \Ebizmarts\Mandrill\Helper\Data $helper
+        EmailMessageInterface $message,
+        Mandrill $api,
+        Data $helper
     ) {
-    
         $this->message  = $message;
         $this->api      = $api;
         $this->helper   = $helper;
     }
-    public function sendMessage()
+
+    public function sendMessage(): void
     {
         try {
             $mandrillApiInstance = $this->getMandrillApiInstance();
 
             if ($mandrillApiInstance === null) {
-                return false;
+                return;
+            }
+            /** @var \Magento\Framework\Mail\Address $fromAddress */
+            $fromAddress = $this->message->getFrom() ? \current($this->message->getFrom()) : null;
+            $message = [
+                'subject' => $this->message->getSubject(),
+                'from_name' => $fromAddress ? $fromAddress->getName() : '',
+                'from_email' => $fromAddress ? $fromAddress->getEmail() : '',
+            ];
+
+            foreach ($this->message->getTo() as $to) {
+                $message['to'][] = [
+                    'email' => $to->getEmail(),
+                    'name' => $to->getName(),
+                ];
             }
 
-            $message = array(
-                'subject' => $this->message->getSubject(),
-                'from_name' => $this->message->getFromName(),
-                'from_email' => $this->message->getFrom(),
-            );
-            foreach ($this->message->getTo() as $to) {
-                $message['to'][] = array(
-                    'email' => $to
-                );
-            }
             foreach ($this->message->getBcc() as $bcc) {
-                $message['to'][] = array(
-                    'email' => $bcc,
-                    'type' => 'bcc'
-                );
+                $message['to'][] = [
+                    'email' => $bcc->getEmail(),
+                    'name' => $bcc->getName(),
+                    'type' => 'bcc',
+                ];
             }
-            if ($att = $this->message->getAttachments()) {
-                $message['attachments'] = $att;
-            }
+
             if ($headers = $this->message->getHeaders()) {
                 $message['headers'] = $headers;
             }
-            switch ($this->message->getType()) {
-                case \Magento\Framework\Mail\MailMessageInterface::TYPE_HTML:
-                    $message['html'] = $this->message->getBody();
-                    break;
-                case \Magento\Framework\Mail\MailMessageInterface::TYPE_TEXT:
-                    $message['text'] = $this->message->getBody();
-                    break;
-            }
+
+            $message = $this->prepareBody($message, $this->message->getBody());
+
             $result = $mandrillApiInstance->messages->send($message);
             $this->processApiCallResult($result);
-        } catch(\Exception $e) {
+        } catch (\Exception $e) {
             $this->helper->log($e->getMessage());
         }
-//
-//        return true;
     }
 
-    private function processApiCallResult($result)
+    /**
+     * @param array $message
+     * @param MimeMessageInterface $body
+     *
+     * @throws \Exception
+     *
+     * @return array
+     */
+    private function prepareBody(array $message, MimeMessageInterface $body): array
+    {
+        $attachments = [];
+        $content = '';
+
+        if ($body->isMultiPart()) {
+            $parts = $body->getParts();
+
+            foreach ($parts as $part) {
+                if ($part->getDisposition() === Mime::DISPOSITION_ATTACHMENT) {
+                    $attachments[] = [
+                        'type' => $part->getType(),
+                        'name' => $part->getFileName(),
+                        'content'=> $part->getContent(),
+                    ];
+                } else {
+                    $content .= $part->getRawContent();
+                }
+            }
+        } else {
+            $part = \current($body->getParts());
+            $content = $part->getRawContent();
+        }
+
+        if (empty($content)) {
+            throw new \Exception('Empty body');
+        }
+        $message['html'] = $content;
+
+        if ($attachments) {
+            $message['attachments'] = $attachments;
+        }
+
+        return $message;
+    }
+
+    /**
+     * @param $result
+     * @throws \Magento\Framework\Exception\MailException
+     */
+    private function processApiCallResult($result): void
     {
         $currentResult = current($result);
+
         if (array_key_exists('status', $currentResult) && $currentResult['status'] == 'rejected') {
             throw new \Magento\Framework\Exception\MailException(
-                new \Magento\Framework\Phrase("Email sending failed: %1", [$currentResult['reject_reason']])
+                new \Magento\Framework\Phrase('Email sending failed: %1', [$currentResult['reject_reason']])
             );
         }
     }
@@ -108,7 +165,8 @@ class Transport implements \Magento\Framework\Mail\TransportInterface
     /**
      * Get message
      *
-     * @return \Magento\Framework\Mail\MessageInterface
+     * @return EmailMessageInterface
+     *
      * @since 100.2.0
      */
     public function getMessage()
