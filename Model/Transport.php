@@ -17,7 +17,7 @@ use Ebizmarts\Mandrill\Model\Api\Mandrill;
 use Magento\Framework\Mail\EmailMessageInterface;
 use Magento\Framework\Mail\MimeMessageInterface;
 use Magento\Framework\Mail\TransportInterface;
-use Zend\Mime\Mime;
+use Laminas\Mime\Mime;
 
 class Transport implements TransportInterface
 {
@@ -86,7 +86,7 @@ class Transport implements TransportInterface
                 $message['headers'] = $headers;
             }
 
-            $message = $this->prepareBody($message, $this->message->getBody());
+            $message = $this->prepareBody($message, $this->message->getMessageBody());
 
             $result = $mandrillApiInstance->messages->send($message);
             $this->processApiCallResult($result);
